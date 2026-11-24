@@ -4706,29 +4706,7 @@ fn encryption_accepts_vision_on_supported_carriers() {
 }
 
 #[test]
-fn plaintext_guard_uses_first_selected_vless_user() {
-    let users = format!(
-        r#""users": [{{"id": "00010203-0405-0607-0809-0a0b0c0d0e0f", "encryption": "none"}}, {{"id": "00010203-0405-0607-0809-0a0b0c0d0e0f", "encryption": "mlkem768x25519plus.native.1rtt.{}"}}]"#,
-        valid_public_key()
-    );
-    let raw = vless_raw(&users, "", 443, valid_public_key(), "02030405");
-    let mut config: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    config["outbounds"][0]["streamSettings"] =
-        serde_json::json!({"network": "tcp", "security": "none"});
-    config["outbounds"][0]["settings"]["vnext"][0]["address"] = serde_json::json!("example.com");
-    assert_parse_error_path(
-        &config.to_string(),
-        "$.outbounds[0].settings.vnext[0].address",
-    );
-    config["outbounds"][0]["settings"]["vnext"][0]["users"]
-        .as_array_mut()
-        .unwrap()
-        .swap(0, 1);
-    assert!(parse_xray_json(&config.to_string()).is_ok());
-}
-
-#[test]
-fn plaintext_vless_accepts_xray_private_test_and_dotless_servers() {
+fn plaintext_vless_accepts_private_test_and_dotless_servers() {
     for address in [
         "10.42.0.1",
         "169.254.0.10",
@@ -4748,18 +4726,14 @@ fn plaintext_vless_accepts_xray_private_test_and_dotless_servers() {
 }
 
 #[test]
-fn plaintext_vless_intentionally_rejects_public_legacy_vnext_servers() {
-    // Xray v26.7.28 accidentally applies this guard only to its simplified
-    // top-level VLESS shape. The supported xray-rust `vnext` shape is stricter
-    // by design so a legacy profile cannot silently retain public plaintext.
+fn plaintext_vless_is_accepted_for_public_servers() {
+    // Magic V2Ray fork: the upstream plaintext guard was removed.
     for address in [
         "8.8.8.8",
         "2606:4700:4700::1111",
         "[2606:4700:4700::1111]",
         "proxy.example.com",
         "123",
-        // Exempt through v26.10.21; v26.10.31 keeps only Go's private,
-        // loopback and link-local addresses.
         "192.0.2.10",
         "100.64.0.10",
         "198.18.0.10",
@@ -4768,20 +4742,12 @@ fn plaintext_vless_intentionally_rejects_public_legacy_vnext_servers() {
             address,
             r#""network": "tcp", "security": "none""#,
         );
-        let error = parse_xray_json(&raw).unwrap_err();
-        assert_eq!(
-            error.diagnostics[0].path.as_deref(),
-            Some("$.outbounds[0].settings.vnext[0].address")
-        );
-        assert_eq!(
-            error.diagnostics[0].message,
-            "vless without TLS or other encryption is prohibited unless the server address is a private IP or domain"
-        );
+        parse_xray_json(&raw).unwrap_or_else(|error| panic!("{address} should parse: {error}"));
     }
 
     for stream_settings in [r#""network": "tcp""#, r#""network": "tcp", "security": """#] {
         let raw = raw_with_stream_settings_and_address("proxy.example.com", stream_settings);
-        assert_parse_error_path(&raw, "$.outbounds[0].settings.vnext[0].address");
+        parse_xray_json(&raw).unwrap();
     }
 }
 

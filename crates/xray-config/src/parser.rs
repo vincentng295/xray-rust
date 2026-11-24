@@ -1320,63 +1320,9 @@ impl Parser<'_> {
         self.validate_masque_pair(&settings, &stream, proxy_settings.is_some(), index);
         self.validate_trojan_stream(&settings, &stream, index);
 
-        // Xray v26.7.28 applies this policy only to its simplified top-level
-        // VLESS settings. Its legacy `vnext` path bypasses that validation.
-        // xray-rust supports the legacy shape and deliberately applies the
-        // same fail-closed security policy here instead of preserving that
-        // unsafe compatibility gap.
-        let rejects_plaintext_server = match &settings {
-            OutboundSettings::Vless(vless) => {
-                matches!(&stream.security, StreamSecurity::None)
-                    && vless
-                        .users
-                        .first()
-                        .is_none_or(|user| user.encryption.is_none())
-                    && !vless.server.is_xray_plaintext_server_exempt()
-            }
-            OutboundSettings::Freedom(_)
-            | OutboundSettings::Dns(_)
-            | OutboundSettings::Hysteria(_)
-            | OutboundSettings::Trojan(_)
-            | OutboundSettings::Vmess(_)
-            | OutboundSettings::Shadowsocks2022(_)
-            | OutboundSettings::Wireguard(_)
-            | OutboundSettings::Blackhole(_)
-            | OutboundSettings::Loopback(_)
-            // SOCKS5 and HTTP proxies are commonly plaintext; RFC 1929 and
-            // Basic credentials then travel in cleartext, which is
-            // documented, not rejected.
-            | OutboundSettings::Socks(_)
-            | OutboundSettings::Http(_)
-            // MASQUE requires TLS.
-            | OutboundSettings::Masque(_) => false,
-        };
-        if rejects_plaintext_server {
-            self.error(
-                format!("$.outbounds[{index}].settings.vnext[0].address"),
-                "vless without TLS or other encryption is prohibited unless the server address is a private IP or domain",
-            );
-            return None;
-        }
-
-        if let (OutboundSettings::Vless(vless), StreamTransport::Xhttp(xhttp)) =
-            (&settings, &stream.transport)
-        {
-            if let Some(download) = &xhttp.download {
-                if download.stream.security == StreamSecurity::None
-                    && vless
-                        .users
-                        .first()
-                        .is_none_or(|user| user.encryption.is_none())
-                    && !download.address.is_xray_plaintext_server_exempt()
-                {
-                    self.error(
-                        xhttp::download_path(outbound.get("streamSettings"), index) + ".address",
-                        "unencrypted VLESS download requires a private or test server address",
-                    );
-                }
-            }
-        }
+        // Magic V2Ray fork: the upstream fail-closed policy that rejected VLESS
+        // without TLS or VLESS encryption (including the XHTTP download leg)
+        // was removed on purpose, so plaintext VLESS is accepted for any address.
 
         let mux = self.parse_mux(outbound, index, &settings);
         self.validate_xdrive_pair(&settings, &stream, mux.as_ref(), index);
