@@ -3,8 +3,9 @@ mod config;
 pub use config::ConfigCommand;
 
 use std::{
-    env, fs,
+    env,
     future::Future,
+    io::{self, Read},
     net::SocketAddr,
     path::{Path, PathBuf},
     task::Poll,
@@ -17,7 +18,7 @@ use xray_core_rs::{
     TunRuntimeOptions, TunRuntimeProfile,
 };
 
-const USAGE: &str = "usage: xray-rust run -config <config.json>\n       xray-rust config <check|contract|example> (see config --help)";
+const USAGE: &str = "usage: xray-rust run -config <config.json|stdin:>\n       xray-rust config <check|contract|example> (see config --help)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliArgs {
@@ -76,6 +77,25 @@ fn is_config_flag(flag: &str) -> bool {
     flag == "-config" || flag == "--config"
 }
 
+/// Config path that means "read the configuration from standard input" (Xray-core spelling).
+/// `-` is accepted as well.
+pub const STDIN_CONFIG: &str = "stdin:";
+
+pub(crate) fn is_stdin_config(path: &Path) -> bool {
+    path == Path::new(STDIN_CONFIG) || path == Path::new("-")
+}
+
+/// Reads the whole configuration: standard input for `stdin:` / `-`, the file otherwise.
+pub(crate) fn read_config_source(path: &Path) -> io::Result<String> {
+    if is_stdin_config(path) {
+        let mut raw = String::new();
+        io::stdin().lock().read_to_string(&mut raw)?;
+        Ok(raw)
+    } else {
+        std::fs::read_to_string(path)
+    }
+}
+
 pub fn load_config(path: &Path) -> Result<CoreConfig, CliError> {
     load_config_with_diagnostics(path).map(|(config, _diagnostics)| config)
 }
@@ -83,7 +103,7 @@ pub fn load_config(path: &Path) -> Result<CoreConfig, CliError> {
 pub fn load_config_with_diagnostics(
     path: &Path,
 ) -> Result<(CoreConfig, Vec<Diagnostic>), CliError> {
-    let raw = fs::read_to_string(path).map_err(|source| CliError::ReadConfig {
+    let raw = read_config_source(path).map_err(|source| CliError::ReadConfig {
         path: path.to_path_buf(),
         source,
     })?;

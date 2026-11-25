@@ -136,6 +136,9 @@ fn file_and_stdin_checks_report_errors_warnings_and_io_failures() {
     );
     let stdin = run(&["config", "check", "--json", "--config", "-"], &raw, &cwd);
     assert_eq!(report(&file, 0), report(&stdin, 0));
+    // `stdin:` (Xray-core spelling) is the same as `-`.
+    let stdin_named = run(&["config", "check", "--config", "stdin:", "--json"], &raw, &cwd);
+    assert_eq!(report(&file, 0), report(&stdin_named, 0));
     // No profile or credential echo on a successful check.
     assert!(!String::from_utf8_lossy(&file.stdout).contains("socks-in"));
     for name in ["missing.json", "invalid-utf8.json"] {

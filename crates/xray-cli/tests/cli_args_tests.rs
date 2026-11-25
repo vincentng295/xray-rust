@@ -22,6 +22,18 @@ fn parses_run_dash_config() {
 }
 
 #[test]
+fn parses_run_stdin_config() {
+    let args = parse_cli_args(["xray-rust", "run", "-config", "stdin:"]).unwrap();
+
+    assert_eq!(
+        args,
+        CliArgs::Run {
+            config_path: PathBuf::from("stdin:")
+        }
+    );
+}
+
+#[test]
 fn parses_run_double_dash_config() {
     let args = parse_cli_args(["xray-rust", "run", "--config", "client.json"]).unwrap();
 

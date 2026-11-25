@@ -1,7 +1,6 @@
 use std::{
-    fs,
-    io::{self, Read, Write},
-    path::{Path, PathBuf},
+    io::{self, Write},
+    path::PathBuf,
 };
 
 use xray_config::{
@@ -13,15 +12,15 @@ use xray_config::{
     Diagnostic, DiagnosticSeverity,
 };
 
-use crate::{geodata_dirs_for_config, CliError};
+use crate::{geodata_dirs_for_config, read_config_source, CliError};
 
 const HELP: &str =
-    "usage: xray-rust config check -config <file|-> [--json] [--geodata-dir <dir>]...
+    "usage: xray-rust config check -config <file|stdin:|-> [--json] [--geodata-dir <dir>]...
        xray-rust config contract
        xray-rust config example <name>
 
 check validates with the linked parser, without starting the core.
-Use -config or --config; - reads UTF-8 JSON from stdin.
+Use -config or --config; stdin: (or -) reads UTF-8 JSON from stdin.
 Without --geodata-dir, lookup matches run: config directory, working directory,
 then executable directory. Repeated --geodata-dir values form an exclusive list.
 Exit status: 0 accepted (warnings allowed), 1 rejected, 2 usage or I/O failure.
@@ -111,12 +110,7 @@ pub(super) fn run(command: ConfigCommand) -> Result<(), CliError> {
             json,
             geodata_dirs,
         } => {
-            let raw = if config_path == Path::new("-") {
-                let mut raw = String::new();
-                io::stdin().lock().read_to_string(&mut raw).map(|_| raw)
-            } else {
-                fs::read_to_string(&config_path)
-            };
+            let raw = read_config_source(&config_path);
             let (report, code) = match raw {
                 Ok(raw) => {
                     let report = if geodata_dirs.is_empty() {
