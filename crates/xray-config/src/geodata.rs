@@ -469,10 +469,29 @@ fn open_file_beneath(root: &Path, requested: &Path) -> io::Result<File> {
     File::open(resolved)
 }
 
+/// Environment variables naming the geodata (asset) directory, highest priority first.
+/// `XRAY_LOCATION_ASSET` is the variable Xray-core reads; `xray.location.asset` is its
+/// legacy spelling.
+const GEODATA_ASSET_ENV_VARS: [&str; 2] = ["XRAY_LOCATION_ASSET", "xray.location.asset"];
+
 pub(crate) fn default_geodata_dirs() -> Vec<PathBuf> {
+    let asset_dir = GEODATA_ASSET_ENV_VARS
+        .iter()
+        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()));
+    geodata_dirs_with_asset_dir(asset_dir)
+}
+
+/// Search order: the asset directory (if any), then the working directory, the executable
+/// directory and `.`, so a bad or missing asset directory still falls back to the old layout.
+fn geodata_dirs_with_asset_dir(asset_dir: Option<std::ffi::OsString>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    if let Some(asset_dir) = asset_dir {
+        dirs.push(PathBuf::from(asset_dir));
+    }
     if let Ok(cwd) = std::env::current_dir() {
-        dirs.push(cwd);
+        if !dirs.iter().any(|dir| dir == &cwd) {
+            dirs.push(cwd);
+        }
     }
     if let Ok(executable) = std::env::current_exe() {
         if let Some(executable_dir) = executable.parent() {
@@ -1526,6 +1545,37 @@ mod tests {
         assert!(super::default_geodata_dirs()
             .iter()
             .any(|dir| dir == &executable_dir));
+    }
+
+    #[test]
+    fn asset_dir_is_searched_before_default_geodata_dirs() {
+        let asset = PathBuf::from("/data/adb/modules/asset");
+        let dirs = super::geodata_dirs_with_asset_dir(Some(asset.clone().into_os_string()));
+
+        assert_eq!(dirs.first(), Some(&asset));
+        assert_eq!(dirs.iter().filter(|dir| **dir == asset).count(), 1);
+        for default_dir in super::geodata_dirs_with_asset_dir(None) {
+            assert!(dirs.contains(&default_dir));
+        }
+    }
+
+    #[test]
+    fn missing_asset_dir_keeps_default_geodata_dirs() {
+        let dirs = super::geodata_dirs_with_asset_dir(None);
+
+        assert_eq!(dirs.last(), Some(&PathBuf::from(".")));
+        assert!(dirs.len() >= 2);
+    }
+
+    #[test]
+    fn geodata_loader_reads_file_from_asset_dir() {
+        let root = unique_temp_dir("asset-env-dir");
+        std::fs::write(root.join("geoip.dat"), b"x").unwrap();
+        let dirs = super::geodata_dirs_with_asset_dir(Some(root.clone().into_os_string()));
+        let loader = GeodataLoader::from_dirs(dirs);
+
+        let (_, path) = loader.open_file("geoip.dat").unwrap();
+        assert_eq!(path, root.join("geoip.dat"));
     }
 
     #[test]
